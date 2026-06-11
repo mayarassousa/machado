@@ -1,60 +1,62 @@
 """Demonstração do Machado.
 
-Dois textos de mesmo assunto: o primeiro escrito como sai de muita
-ferramenta de geração (ou de muito comunicado corporativo); o segundo,
-como Graciliano mandaria escrever. A diferença entre os dois relatórios
-é o argumento do projeto.
+Analisa cinco textos de perfis diferentes, guardados em exemplos/:
+um comunicado corporativo carregado de desvios, um texto com cara de
+saída de modelo de linguagem, um trecho acadêmico, uma nota
+jornalística razoável e um texto enxuto. A tabela comparativa mostra
+como o perfil de cada um aparece nos números; o relatório completo do
+primeiro mostra o diagnóstico em detalhe.
 
 Uso:  python demo.py
 """
 
-import json
+from pathlib import Path
 
 from machado import MotorEstilo
 
-TEXTO_CARREGADO = """No cenário atual, é importante ressaltar que a nossa \
-equipe vai estar realizando a implementação da nova solução tecnológica \
-inovadora, robusta e disruptiva nos próximos dias. A decisão foi tomada pela \
-diretoria há alguns meses atrás, e o projeto — que representa um divisor de \
-águas para a empresa — não é apenas uma atualização, é uma transformação. \
-Vale destacar que o sistema desempenha um papel fundamental na otimização \
-dos processos que sustentam a operação, que, segundo a equipe que conduziu \
-a análise que foi realizada no trimestre passado, vai estar gerando \
-resultados que certamente serão percebidos rapidamente e amplamente pelos \
-clientes que utilizam a plataforma diariamente. Antes de mais nada, \
-precisamos planejar com antecedência a realização da migração do \
-atendimento, pois a equipe de atendimento informou que o atendimento atual \
-apresenta falhas através do canal digital."""
+PASTA_EXEMPLOS = Path(__file__).parent / "exemplos"
 
-TEXTO_ENXUTO = """A diretoria aprovou o novo sistema em março. A equipe \
-implanta a primeira etapa nesta semana e mede os resultados no fim do mês. \
-Se algo falhar, voltamos ao plano anterior. O suporte responde os chamados \
-em até quatro horas."""
+ORDEM = [
+    ("corporativo", "comunicado corporativo"),
+    ("gerado_ia", "texto com cara de LLM"),
+    ("academico", "trecho acadêmico"),
+    ("jornalistico", "nota jornalística"),
+    ("limpo", "texto enxuto"),
+]
 
 
 def main() -> None:
     motor = MotorEstilo()
+    resultados = {}
 
-    print("\n############ TEXTO 1 — carregado de desvios ############\n")
-    resultado_1 = motor.analisar(TEXTO_CARREGADO)
-    print(motor.relatorio(resultado_1))
+    for nome, _ in ORDEM:
+        texto = (PASTA_EXEMPLOS / f"{nome}.txt").read_text(encoding="utf-8")
+        resultados[nome] = motor.analisar(texto)
 
-    print("\n############ TEXTO 2 — enxuto ############\n")
-    resultado_2 = motor.analisar(TEXTO_ENXUTO)
-    print(motor.relatorio(resultado_2))
+    # ------------------------------------------------------------- tabela
+    print()
+    print(f"{'texto':<14} {'palavras':>8} {'ocorr.':>7} {'/1000':>7} "
+          f"{'atenção':>8} {'sotaque IA':>11}")
+    print("-" * 60)
+    for nome, descricao in ORDEM:
+        e = resultados[nome].estatisticas
+        print(f"{nome:<14} {e['palavras']:>8} {e['total_ocorrencias']:>7} "
+              f"{e['ocorrencias_por_1000_palavras']:>7} "
+              f"{e['por_severidade']['atencao']:>8} "
+              f"{e['indice_sotaque_ia_por_1000_palavras']:>11}")
+    print()
 
-    # Saída estruturada: é isto que uma API/editor consumiria.
-    with open("machado_resultado.json", "w", encoding="utf-8") as f:
-        f.write(motor.para_json(resultado_1))
-    print("\nJSON estruturado do Texto 1 salvo em machado_resultado.json")
+    # ------------------------------------- relatório completo de um deles
+    print("Relatório completo do texto corporativo:")
+    print()
+    print(motor.relatorio(resultados["corporativo"]))
 
-    # Comparativo final
-    e1, e2 = resultado_1.estatisticas, resultado_2.estatisticas
-    print("\nComparativo (ocorrências por 1000 palavras):")
-    print(f"  Texto 1: {e1['ocorrencias_por_1000_palavras']:>6}  "
-          f"| sotaque de IA: {e1['indice_sotaque_ia_por_1000_palavras']}")
-    print(f"  Texto 2: {e2['ocorrencias_por_1000_palavras']:>6}  "
-          f"| sotaque de IA: {e2['indice_sotaque_ia_por_1000_palavras']}")
+    # ----------------------------------------------------- saída em JSON
+    caminho_json = Path("machado_resultado.json")
+    caminho_json.write_text(
+        motor.para_json(resultados["corporativo"]), encoding="utf-8"
+    )
+    print(f"\nJSON estruturado salvo em {caminho_json}")
 
 
 if __name__ == "__main__":
