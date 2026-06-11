@@ -5,29 +5,19 @@ para padrões de superfície, SpaCy para padrões morfossintáticos — e uma sa
 explicável: cada sinalização carrega a regra que a produziu, o porquê e a
 sugestão de correção.
 
-O nome segue a tradição da casa: se a assistente se chama Clarice, o módulo
-que corta excesso só podia se chamar Machado.
+O nome é uma homenagem a Machado de Assis e, ao mesmo tempo, uma descrição da
+tarefa: cortar o que sobra.
 
-## Por que regras, e não (só) um LLM
+## A ideia
 
-Um detector de gerundismo não precisa de 7 bilhões de parâmetros. Precisa de
-uma expressão regular correta e de uma explicação linguística honesta. Para a
-classe de desvios que tem **forma estável** — gerundismo, pleonasmo, clichê,
-queísmo, nominalização —, regras linguísticas bem escritas entregam:
+Boa parte dos vícios de escrita — gerundismo, pleonasmo, clichê, queísmo, nominalização — tem forma fixa. 
+Para esse tipo de desvio, uma regra bem escrita resolve, e resolve melhor do que um modelo grande, por motivos práticos:
+- **precisão controlável**: cada regra é testável isoladamente, com casos positivos e negativos (a suíte deste projeto tem 25 testes);
+- **custo marginal próximo de zero**:  nada de inferência por token; o motor inteiro roda em milissegundos em CPU;
+- **explicabilidade por construção**: a saída é um diagnóstico, mostra a regra, posição, justificativa, sugestão;
+- **manutenção previsível**: corrigir um falso positivo é editar uma regra, não retreinar um modelo.
 
-- **precisão controlável**: cada regra é testável isoladamente, com casos
-  positivos e negativos (a suíte deste projeto tem 25 testes);
-- **custo marginal próximo de zero**: nada de inferência por token; o motor
-  inteiro roda em milissegundos em CPU;
-- **explicabilidade por construção**: a saída não é uma probabilidade, é um
-  diagnóstico — regra, posição, justificativa, sugestão;
-- **manutenção previsível**: corrigir um falso positivo é editar uma regra,
-  não retreinar um modelo.
-
-O LLM entra onde a regra não alcança (ver "Limites", abaixo). A divisão de
-trabalho é a mesma que torna um produto de revisão sustentável em escala:
-camada determinística barata na frente, modelo caro apenas onde há ambiguidade
-real para resolver.
+O Machado é só, como o próprio nome demostra, uma ferramenta simples, não substitui um modelo de linguagem ele só entra onde a regra alcança.
 
 ## Arquitetura
 
@@ -49,59 +39,40 @@ texto
         relatório legível  ·  JSON estruturado por ocorrência
 ```
 
-Três decisões sustentam o desenho:
+O projeto se organiza em torno de algumas escolhas.
+As regras da primeira camada são tratadas como dados. 
+Cada uma é uma entrada com identificador, padrão, categoria, severidade, explicação e sugestão. 
+Para adicionar uma nova dica de estilo, basta acrescentar mais um item à lista; o motor que aplica as regras não muda. 
+Quando o padrão sozinho não basta — por exemplo, um travessão em linha de diálogo é legítimo, mas o mesmo travessão no meio de um parágrafo costuma ser cacoete — a regra pode incluir uma função de filtro que decide se o casamento conta ou não.
 
-**1. Regra é dado, não código.** Cada regra da Camada 1 é uma entrada
-declarativa (`RegraRegex`) com id estável, padrão, categoria, severidade,
-explicação e sugestão. Adicionar a 13ª, a 50ª ou a 120ª dica de estilo não
-toca no motor — toca na base de regras. Para os casos em que regex puro não
-expressa a restrição (ex.: travessão em linha de diálogo é legítimo;
-travessão intercalado no meio do parágrafo é cacoete), a regra aceita um
-**filtro contextual** opcional: continua declarativa, ganha veto.
+A segunda camada usa spaCy e cada regra declara de que partes do pipeline ela precisa. Se o modelo treinado de português estiver instalado, todas as regras funcionam, e as que dependem de classe gramatical ou morfologia ficam mais precisas. Se não estiver, o motor cai num pipeline mínimo (só tokenizador e segmentador de frases), as regras que ainda funcionam continuam ativas, e o relatório lista no início quais ficaram desligadas. A ideia é não esconder do usuário o que não foi analisado.
 
-**2. Capability-aware por padrão.** As regras da Camada 2 declaram o que
-exigem do pipeline. Com o modelo treinado (`pt_core_news_sm`), tudo ativa,
-com POS e morfologia refinando as heurísticas; com um `spacy.blank("pt")`,
-as regras lexicais e estruturais seguem funcionando e o relatório **declara
-o que ficou de fora** em vez de fingir cobertura total. Em produção, isso
-permite uma primeira passada barata em escala e o pipeline caro só onde é
-necessário.
-
-**3. Precisão acima de cobertura.** Um revisor que grita falso positivo é
-desinstalado na primeira semana. Por isso os limiares são conservadores e
-configuráveis (`ConfigMotor`), os padrões carregam anti-falsos-positivos
-explícitos (adjetivos em *-ido* que não são particípios; "ao mesmo tempo"
-que não é "o mesmo" pronominal) e a severidade distingue erro de norma
-(ATENÇÃO), escolha que enfraquece o texto (SUGESTÃO) e traço legítimo cujo
-problema é a dose (INFO).
+A terceira escolha é privilegiar precisão. Uma ferramenta que aponta erros onde não há tende a perder credibilidade rápido, então os limiares são conservadores e podem ser ajustados e várias regras carregam exceções para os falsos positivos mais comuns. A severidade também separa três coisas que costumam ser confundidas: o que é desvio da norma, o que é uma escolha que costuma enfraquecer o texto e o que é legítimo, mas pode incomodar quando aparece em excesso.
 
 ## O que ele detecta hoje
 
 Doze categorias, escolhidas por sobreposição com o repertório clássico de
-desvios da escrita profissional em PT-BR: gerundismo; pleonasmos viciosos
-("há anos atrás", "subir para cima", "conclusão final"); clichês e muletas
-("antes de mais nada", "através de" como meio, "o mesmo" pronominal);
-palavras vazias de corporativês; voz passiva; nominalização com verbo-suporte
-("realizar a implementação" → "implementar"); frases longas; queísmo;
-acúmulo de advérbios em *-mente*; adjetivação excessiva; repetição lexical
-em janela curta; e **marcadores de texto gerado por IA**.
+desvios da escrita profissional em PT-BR: gerundismo; pleonasmos viciosos; clichês e muletas;
+palavras vazias de corporativês; voz passiva; nominalização com verbo-suporte; frases longas; queísmo;
+acúmulo de advérbios em *-mente*; adjetivação excessiva; repetição lexical em janela curta; e **marcadores de texto gerado por IA**.
 
 ### A categoria diferencial: marcadores de IA
 
 A última categoria trata texto gerado por LLM como **variedade linguística
 com traços descritíveis**: o travessão parentético à moda anglófona, as
 estruturas contrastivas formulaicas ("não é apenas X, é Y"), o metadiscurso
-de preenchimento ("é importante ressaltar que"), as aberturas de ambientação
-("no cenário atual"), as colocações de relevância vazia ("desempenha um
-papel fundamental") e os vestígios de chat que sobrevivem ao copiar-e-colar.
+de preenchimento, as aberturas de ambientação, as colocações de relevância vazia e os vestígios de chat que sobrevivem ao copiar-e-colar.
 
 O motor agrega isso num **índice de sotaque de IA** (ocorrências por mil
-palavras). A moldura é deliberadamente honesta: **não é um detector de IA**.
-Texto humano pode pontuar alto — e mereceria revisão do mesmo jeito; texto
+palavras). 
+**não é um detector de IA**.
+Texto humano pode pontuar alto e mereceria revisão do mesmo jeito; texto
 gerado e bem editado pontua baixo — que é exatamente o objetivo de quem usa
-uma ferramenta de humanização. O índice mede cacoete, não autoria. É a
-fundação técnica de um recurso de "humanizar": antes de reescrever, saber
-*o que* soa a máquina e *onde*.
+uma ferramenta de humanização.
+O índice mede sotaque, não autoria.
+O uso prático é como ponto de partida para humanizar texto. 
+Antes de reescrever um rascunho para soar mais natural, é útil saber o que está fazendo ele soar artificial e em que pontos. 
+O índice dá esse mapa.
 
 ## Instalação e uso
 
