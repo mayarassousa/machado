@@ -1,34 +1,35 @@
 # Machado
 
-Um revisor de estilo para o português brasileiro. Ele lê um texto e aponta os
-lugares onde a escrita trava — gerundismo, pleonasmo, clichê, voz passiva,
-frase longa demais — explicando o que encontrou e por quê. Duas camadas fazem
-o trabalho: expressões regulares para os padrões de superfície e spaCy para o
-que depende de análise gramatical.
+Motor de revisão estilística para o português brasileiro. Duas camadas — regex
+para padrões de superfície, SpaCy para padrões morfossintáticos — e uma saída
+explicável: cada sinalização carrega a regra que a produziu, o porquê e a
+sugestão de correção.
 
-O nome é uma homenagem a Machado de Assis e, ao mesmo tempo, uma descrição da
-tarefa: cortar o que sobra.
+O nome segue a tradição da casa: se a assistente se chama Clarice, o módulo
+que corta excesso só podia se chamar Machado.
 
-## A ideia
+## Por que regras, e não (só) um LLM
 
-Boa parte dos vícios de escrita tem forma fixa. "Vou estar enviando" é
-gerundismo em qualquer contexto; "há anos atrás" é redundante sempre; "no
-cenário atual" abre parágrafo sem dizer nada, apareça onde aparecer. Para esse
-tipo de desvio, uma regra bem escrita resolve — e resolve melhor do que um
-modelo grande, por motivos práticos:
+Um detector de gerundismo não precisa de 7 bilhões de parâmetros. Precisa de
+uma expressão regular correta e de uma explicação linguística honesta. Para a
+classe de desvios que tem **forma estável** — gerundismo, pleonasmo, clichê,
+queísmo, nominalização —, regras linguísticas bem escritas entregam:
 
-- dá para testar cada regra isoladamente, com exemplos do que ela deve e do
-  que ela não deve pegar (o projeto tem 25 testes nesse espírito);
-- o custo é quase nulo: nada de inferência, roda em milissegundos na CPU;
-- a saída é um diagnóstico, não uma probabilidade — você sabe qual regra
-  disparou, onde, e o que ela sugere;
-- corrigir um falso positivo é editar uma linha, não retreinar nada.
+- **precisão controlável**: cada regra é testável isoladamente, com casos
+  positivos e negativos (a suíte deste projeto tem 25 testes);
+- **custo marginal próximo de zero**: nada de inferência por token; o motor
+  inteiro roda em milissegundos em CPU;
+- **explicabilidade por construção**: a saída não é uma probabilidade, é um
+  diagnóstico — regra, posição, justificativa, sugestão;
+- **manutenção previsível**: corrigir um falso positivo é editar uma regra,
+  não retreinar um modelo.
 
-Nada disso substitui um modelo de linguagem; o que faz é delimitar o que ele
-precisa fazer. Onde existe ambiguidade de verdade — e existe —, o lugar é dele.
-Para o resto, regra basta.
+O LLM entra onde a regra não alcança (ver "Limites", abaixo). A divisão de
+trabalho é a mesma que torna um produto de revisão sustentável em escala:
+camada determinística barata na frente, modelo caro apenas onde há ambiguidade
+real para resolver.
 
-## Como funciona
+## Arquitetura
 
 ```
 texto
@@ -38,75 +39,77 @@ texto
   │     gerundismo, pleonasmos, clichês, palavras vazias,
   │     marcadores de texto gerado por IA
   │
-  ├── Camada 2 · spaCy (regras_spacy.py)
-  │     o que precisa de estrutura: voz passiva, nominalização,
+  ├── Camada 2 · SpaCy (regras_spacy.py)
+  │     padrões que exigem estrutura: voz passiva, nominalização,
   │     frases longas, queísmo, repetição lexical, advérbios em
   │     -mente, adjetivação excessiva
   │
   └── Motor (motor.py)
-        ordena, calcula estatísticas e devolve:
+        ordena, calcula estatísticas e emite:
         relatório legível  ·  JSON estruturado por ocorrência
 ```
 
-Três decisões organizam o código.
+Três decisões sustentam o desenho:
 
-**Regra é dado.** Cada regra da primeira camada é uma entrada declarativa: um
-identificador, o padrão, a categoria, a severidade, a explicação e a sugestão.
-Acrescentar a décima terceira ou a centésima dica de estilo não mexe no motor —
-mexe na lista de regras. Quando o padrão sozinho não dá conta (um travessão de
-diálogo é legítimo; um travessão no meio do parágrafo, à moda inglesa, é
-cacoete), a regra aceita um filtro de contexto. Continua declarativa, mas ganha
-o veto que a expressão regular não expressa.
+**1. Regra é dado, não código.** Cada regra da Camada 1 é uma entrada
+declarativa (`RegraRegex`) com id estável, padrão, categoria, severidade,
+explicação e sugestão. Adicionar a 13ª, a 50ª ou a 120ª dica de estilo não
+toca no motor — toca na base de regras. Para os casos em que regex puro não
+expressa a restrição (ex.: travessão em linha de diálogo é legítimo;
+travessão intercalado no meio do parágrafo é cacoete), a regra aceita um
+**filtro contextual** opcional: continua declarativa, ganha veto.
 
-**O motor sabe do que é capaz.** A segunda camada depende do spaCy, e cada
-regra dela declara o que precisa do pipeline. Com o modelo treinado de
-português, tudo funciona, com classe gramatical e morfologia afinando as
-heurísticas. Sem o modelo — só com o tokenizador e o segmentador de frases —,
-as regras lexicais e estruturais continuam de pé, e o relatório avisa o que
-ficou de fora em vez de fingir que analisou. Na prática, isso permite uma
-primeira passada barata em muito texto e o pipeline pesado só onde ele importa.
+**2. Capability-aware por padrão.** As regras da Camada 2 declaram o que
+exigem do pipeline. Com o modelo treinado (`pt_core_news_sm`), tudo ativa,
+com POS e morfologia refinando as heurísticas; com um `spacy.blank("pt")`,
+as regras lexicais e estruturais seguem funcionando e o relatório **declara
+o que ficou de fora** em vez de fingir cobertura total. Em produção, isso
+permite uma primeira passada barata em escala e o pipeline caro só onde é
+necessário.
 
-**Precisão antes de cobertura.** Um revisor que acusa o que não é erro perde a
-confiança de quem usa. Por isso os limiares são conservadores e configuráveis,
-os padrões carregam defesas contra os falsos positivos clássicos (adjetivos em
-*-ido* que não são particípios; "ao mesmo tempo", que não é o "o mesmo"
-burocrático), e a severidade separa três coisas diferentes: o que é desvio de
-norma, o que é escolha que enfraquece o texto e o que é legítimo mas vira
-problema na dose.
+**3. Precisão acima de cobertura.** Um revisor que grita falso positivo é
+desinstalado na primeira semana. Por isso os limiares são conservadores e
+configuráveis (`ConfigMotor`), os padrões carregam anti-falsos-positivos
+explícitos (adjetivos em *-ido* que não são particípios; "ao mesmo tempo"
+que não é "o mesmo" pronominal) e a severidade distingue erro de norma
+(ATENÇÃO), escolha que enfraquece o texto (SUGESTÃO) e traço legítimo cujo
+problema é a dose (INFO).
 
-## O que ele detecta
+## O que ele detecta hoje
 
-Doze categorias: gerundismo; pleonasmo ("há anos atrás", "subir para cima",
-"conclusão final"); clichês e muletas ("antes de mais nada", "através de" como
-meio, "o mesmo" pronominal); palavras de corporativês; voz passiva;
-nominalização ("realizar a implementação" no lugar de "implementar"); frase
-longa; queísmo; acúmulo de advérbios em *-mente*; excesso de adjetivos;
-repetição de palavra em espaço curto; e marcadores de texto gerado por IA.
+Doze categorias, escolhidas por sobreposição com o repertório clássico de
+desvios da escrita profissional em PT-BR: gerundismo; pleonasmos viciosos
+("há anos atrás", "subir para cima", "conclusão final"); clichês e muletas
+("antes de mais nada", "através de" como meio, "o mesmo" pronominal);
+palavras vazias de corporativês; voz passiva; nominalização com verbo-suporte
+("realizar a implementação" → "implementar"); frases longas; queísmo;
+acúmulo de advérbios em *-mente*; adjetivação excessiva; repetição lexical
+em janela curta; e **marcadores de texto gerado por IA**.
 
-### Os marcadores de IA
+### A categoria diferencial: marcadores de IA
 
-A última categoria trata a escrita de modelos de linguagem como o que ela é:
-uma variedade com traços reconhecíveis. O travessão parentético à moda inglesa,
-as estruturas de contraste em fôrma ("não é apenas X, é Y"), o metadiscurso de
-enchimento ("é importante ressaltar que"), as aberturas genéricas ("no cenário
-atual"), as colocações de relevância vazia ("desempenha um papel fundamental"),
-os restos de conversa que escapam no copia-e-cola.
+A última categoria trata texto gerado por LLM como **variedade linguística
+com traços descritíveis**: o travessão parentético à moda anglófona, as
+estruturas contrastivas formulaicas ("não é apenas X, é Y"), o metadiscurso
+de preenchimento ("é importante ressaltar que"), as aberturas de ambientação
+("no cenário atual"), as colocações de relevância vazia ("desempenha um
+papel fundamental") e os vestígios de chat que sobrevivem ao copiar-e-colar.
 
-O motor junta tudo isso num índice — ocorrências por mil palavras. E aqui vale
-a ressalva, que é parte do desenho e não rodapé: isto não é um detector de IA.
-É um medidor de sotaque. Texto escrito por gente pode pontuar alto, e mereceria
-revisão do mesmo jeito; texto gerado e bem editado pontua baixo, que é
-justamente o objetivo de quem reescreve para soar humano. O índice mede o
-cacoete, não a autoria. Como ponto de partida para humanizar um texto, serve:
-antes de reescrever, dá para saber o que soa a máquina e onde.
+O motor agrega isso num **índice de sotaque de IA** (ocorrências por mil
+palavras). A moldura é deliberadamente honesta: **não é um detector de IA**.
+Texto humano pode pontuar alto — e mereceria revisão do mesmo jeito; texto
+gerado e bem editado pontua baixo — que é exatamente o objetivo de quem usa
+uma ferramenta de humanização. O índice mede cacoete, não autoria. É a
+fundação técnica de um recurso de "humanizar": antes de reescrever, saber
+*o que* soa a máquina e *onde*.
 
-## Uso
+## Instalação e uso
 
 ```bash
 pip install -r requirements.txt
-python -m spacy download pt_core_news_sm   # opcional; ativa as regras que usam classe gramatical
+python -m spacy download pt_core_news_sm   # opcional, ativa as regras de POS
 
-python demo.py                              # demonstração com dois textos contrastantes
+python demo.py                              # demonstração com dois textos
 python -m machado "Vou estar enviando o relatório que foi escrito há dias atrás."
 python -m machado --json "..."              # saída estruturada
 pytest -q                                   # 25 testes
@@ -122,45 +125,45 @@ resultado = motor.analisar(texto)
 
 resultado.ocorrencias[0].categoria    # "gerundismo"
 resultado.estatisticas["indice_sotaque_ia_por_1000_palavras"]
-motor.para_json(resultado)
+motor.para_json(resultado)            # pronto para uma API ou um editor
 ```
 
-Cada ocorrência no JSON traz o identificador da regra, a categoria, a
-severidade, o trecho, os offsets de caractere (prontos para sublinhar num
-editor), a explicação, a sugestão, a camada e o contexto.
+Cada ocorrência no JSON traz: `regra_id`, `categoria`, `severidade`,
+`trecho`, `inicio`/`fim` (offsets de caractere, prontos para sublinhar num
+editor), `explicacao`, `sugestao`, `camada` e `contexto`.
 
-## O que ele não faz
+## Limites — e onde entra o aprendizado de máquina
 
-Regras enxergam forma, não adequação. Os limites são conhecidos e assumidos: a
-voz passiva entra como informação porque às vezes é a escolha certa — decidir
-quando ela atrapalha pede um contexto que o padrão não tem. A repetição pode
-ser ênfase deliberada; o motor marca o eco, não a intenção. O índice de sotaque
-mede densidade de cacoete, não quem escreveu. E nada disso reescreve o texto:
-aponta o problema e a direção.
+Regras detectam **forma**; não detectam **adequação**. Os limites são
+conhecidos e assumidos:
 
-É justamente nesses pontos que um modelo entra com vantagem — para arbitrar os
-casos ambíguos (passiva ruim ou passiva funcional?), ordenar sugestões e fazer
-a reescrita propriamente dita, agora guiada pelo diagnóstico. O diagnóstico
-transforma "escreva melhor" em instrução verificável: "tire o gerundismo na
-posição 60–80; quebre o período de 49 palavras". A camada barata e auditável
-vira o controle da camada cara e criativa.
+- A voz passiva é sinalizada como informação porque é legítima quando o
+  agente não importa — decidir *quando* ela enfraquece o texto exige
+  contexto discursivo, não padrão.
+- Repetição pode ser anáfora retórica deliberada; o motor sinaliza o eco,
+  não a intenção.
+- O índice de sotaque de IA mede densidade de cacoetes, não autoria.
+- Regras não geram a reescrita; apontam o problema e a direção.
 
-## Estrutura
+É exatamente nesses pontos que um modelo entra com vantagem: um classificador
+de contexto para arbitrar sinalizações ambíguas (passiva ruim vs. passiva
+funcional), ranqueamento de sugestões e a reescrita propriamente dita por
+LLM — **condicionada pelo diagnóstico do motor**, que transforma "reescreva
+melhor" em instruções verificáveis ("elimine o gerundismo em 60–80; quebre
+o período de 49 palavras em 352–690"). O motor barato e auditável vira a
+camada de controle do modelo caro e criativo: cada um faz o que faz melhor.
+
+## Estrutura do projeto
 
 ```
 machado/
 ├── machado/
 │   ├── tipos.py          # Ocorrencia, Resultado, severidades, categorias
 │   ├── regras_regex.py   # Camada 1 — base declarativa de regras
-│   ├── regras_spacy.py   # Camada 2 — regras morfossintáticas
+│   ├── regras_spacy.py   # Camada 2 — regras morfossintáticas capability-aware
 │   ├── motor.py          # orquestração, estatísticas, relatório, JSON
-│   ├── __init__.py
-│   └── __main__.py       # interface de linha de comando
+│   └── __main__.py       # CLI
 ├── demo.py               # demonstração com textos contrastantes
 ├── tests/test_machado.py # 25 testes (casos positivos e anti-falso-positivo)
 └── requirements.txt
 ```
-
-## Licença
-
-MIT.
