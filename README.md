@@ -1,6 +1,6 @@
 ---
 title: Machado
-emoji: ✂️
+emoji: 🪓
 colorFrom: purple
 colorTo: pink
 sdk: gradio
