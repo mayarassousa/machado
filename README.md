@@ -1,3 +1,20 @@
+---
+title: Machado
+emoji: ✂️
+colorFrom: purple
+colorTo: pink
+sdk: gradio
+app_file: app.py
+pinned: false
+license: mit
+short_description: Revisor estilístico explicável para PT-BR.
+tags:
+  - gradio
+  - nlp
+  - portuguese
+  - text-analysis
+  - explainable-ai
+---
 # Machado
 
 Motor de revisão estilística para o português brasileiro. Duas camadas — regex
@@ -16,7 +33,7 @@ padrão de superfície. Para esse tipo de desvio, uma regra bem escrita resolve,
 com vantagens práticas que um modelo grande não oferece nessa classe de
 problema:
 
-- **precisão controlável**: cada regra é testável isoladamente, com casos positivos e negativos (a suíte deste projeto tem 35 testes);
+- **precisão controlável**: cada regra é testável isoladamente, com casos positivos e negativos (a suíte deste projeto tem 36 testes);
 - **custo computacional baixo**: nada de inferência de modelo; o motor inteiro roda em milissegundos em CPU;
 - **explicabilidade por construção**: a saída é um diagnóstico, mostra a regra, posição, justificativa, sugestão;
 - **manutenção previsível**: corrigir um falso positivo é editar uma regra, não retreinar um modelo.
@@ -81,7 +98,7 @@ com verbo-suporte; frases longas; queísmo; acúmulo de advérbios em *-mente*;
 adjetivação excessiva; repetição lexical em janela curta; e **marcadores de
 texto gerado por IA**.
 
-### A categoria diferencial: marcadores de IA
+### Os marcadores de IA
 
 A última categoria trata texto gerado por LLM como **variedade linguística com
 traços descritíveis**: o travessão parentético à moda anglófona, as estruturas
@@ -112,6 +129,15 @@ O uso prático é como ponto de partida para humanizar texto. Antes de
 reescrever um rascunho para soar mais natural, é útil saber o que está fazendo
 ele soar artificial e em que pontos. O índice dá esse mapa.
 
+## Demo
+
+O arquivo `app.py` publica o motor como aplicação web (Gradio), no formato
+que o Hugging Face Spaces executa direto do repositório. A interface destaca
+os desvios pontuais no próprio texto, lista as observações por frase, mostra
+a tabela completa de ocorrências e a saída JSON. No Spaces, o modelo
+`pt_core_news_sm` é instalado junto com as dependências, então a demo
+pública roda com todas as regras ativas.
+
 ## Instalação e uso
 
 ```bash
@@ -119,9 +145,10 @@ pip install -r requirements.txt
 python -m spacy download pt_core_news_sm   # opcional, ativa as regras de POS
 
 python demo.py                              # analisa os cinco textos de exemplos/
+python app.py                               # interface web (Gradio) em http://localhost:7860
 python -m machado "Vou estar enviando o relatório que foi escrito há dias atrás."
 python -m machado --json "..."              # saída estruturada
-pytest -q                                   # 35 testes
+pytest -q                                   # 36 testes
 ```
 
 A pasta `exemplos/` traz cinco textos de perfis diferentes — um comunicado
@@ -176,8 +203,9 @@ machado/
 │   ├── __init__.py
 │   └── __main__.py       # CLI
 ├── exemplos/             # cinco textos de perfis diferentes
+├── app.py                # interface web (Gradio / Hugging Face Spaces)
 ├── demo.py               # tabela comparativa + relatório completo
-├── tests/                # 35 testes (regras e perfis dos exemplos)
+├── tests/                # 36 testes (regras e perfis dos exemplos)
 └── requirements.txt
 ```
 

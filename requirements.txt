@@ -1,5 +1,4 @@
-spacy>=3.7,<4
+spacy>=3.8,<3.9
+pt-core-news-sm @ https://github.com/explosion/spacy-models/releases/download/pt_core_news_sm-3.8.0/pt_core_news_sm-3.8.0-py3-none-any.whl
+gradio>=5,<7
 pytest>=8
-
-# Modelo de PT (opcional; sem ele o motor roda em modo reduzido):
-# python -m spacy download pt_core_news_sm

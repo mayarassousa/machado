@@ -170,3 +170,7 @@ def test_config_personalizada():
     motor = MotorEstilo(ConfigMotor(max_palavras_frase=5))
     resultado = motor.analisar("Esta frase curta tem exatamente sete palavras aqui.")
     assert "frase_longa" in {o.categoria for o in resultado.ocorrencias}
+
+
+def test_nome_proprio_em_ado_nao_e_passiva(motor):
+    assert "voz_passiva" not in categorias(motor, "O autor preferido dela é o Machado.")

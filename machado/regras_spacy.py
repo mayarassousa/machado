@@ -127,6 +127,10 @@ def _eh_participio(token, modo: str) -> bool:
         return token.pos_ in {"VERB", "AUX"} and token.text.lower().endswith(
             ("ado", "ada", "ados", "adas", "ido", "ida", "idos", "idas")
         )
+    # Maiúscula no meio da frase indica nome próprio (Machado, Furtado,
+    # Alvarado…), não particípio — sem POS, a capitalização é o sinal.
+    if token.text[:1].isupper() and not token.is_sent_start:
+        return False
     palavra = token.lower_
     if palavra in _PARTICIPIOS_IRREGULARES:
         return True
